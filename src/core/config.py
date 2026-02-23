@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     app_name: str = "secure-image-service"
     app_env: Literal["local", "dev", "prod"] = "local"
     aws_region: str = "us-east-1"
+    aws_endpoint_url: str | None = None
+    s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
     images_table_name: str = "Images"
     images_bucket_name: str = "images-bucket"
     gsi1_name: str = "GSI1ImageLookup"
@@ -31,6 +33,12 @@ class Settings(BaseSettings):
     @property
     def allowed_content_types_set(self) -> set[str]:
         return {item.strip() for item in self.allowed_content_types.split(",") if item.strip()}
+
+    @property
+    def aws_endpoint_url_or_none(self) -> str | None:
+        if not self.aws_endpoint_url:
+            return None
+        return self.aws_endpoint_url.strip() or None
 
 
 @lru_cache(maxsize=1)

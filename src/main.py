@@ -15,7 +15,7 @@ def create_app() -> FastAPI:
 
     app.include_router(images_router)
 
-    @app.get("/health")
+    @app.get("/v1/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 

@@ -13,6 +13,12 @@ class Visibility(str, Enum):
     PRIVATE = "PRIVATE"
 
 
+class UploadStatus(str, Enum):
+    PENDING_UPLOAD = "PENDING_UPLOAD"
+    UPLOADED = "UPLOADED"
+    UPLOAD_FAILED = "UPLOAD_FAILED"
+
+
 class CreateImageRequest(BaseModel):
     caption: str | None = Field(default=None, max_length=2200)
     tags: list[str] = Field(default_factory=list, max_length=10)
@@ -97,6 +103,8 @@ class ImageMetadata(BaseModel):
     s3_key: str
     content_type: str
     size_bytes: int
+    upload_status: UploadStatus = UploadStatus.PENDING_UPLOAD
+    uploaded_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

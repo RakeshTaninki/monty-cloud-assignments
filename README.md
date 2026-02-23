@@ -4,7 +4,7 @@ Production-grade image metadata service with strict ownership controls, Cognito 
 
 ## Features
 
-- FastAPI routes behind API Gateway HTTP API proxy.
+- FastAPI routes behind API Gateway proxy integration.
 - Cognito User Pool JWT authorizer at gateway level.
 - Owner-only CRUD + public read of `PUBLIC` images.
 - Pre-signed S3 upload/download URLs for scale.
@@ -22,6 +22,13 @@ Production-grade image metadata service with strict ownership controls, Cognito 
 - `docker-compose.localstack.yml`: LocalStack runtime.
 - `scripts/deploy_localstack.sh`: LocalStack deployment helper.
 - `scripts/bootstrap_cognito_user.sh`: local Cognito user/token helper.
+
+## Upload Lifecycle
+
+- `POST /v1/images` creates metadata with `upload_status=PENDING_UPLOAD` and returns a presigned `upload_url`.
+- Client uploads bytes to S3 using a single presigned `upload_url` and exact `upload_headers`.
+- S3 `ObjectCreated` event triggers a Lambda that updates DynamoDB status to `UPLOADED`.
+- Check status via `GET /v1/images/{imageId}`.
 
 ## Prerequisites
 
@@ -122,6 +129,12 @@ Quick Postman requests:
 - `GET {{baseUrl}}/images/{imageId}/download-url` with header `x-user-id: user-123`
 - `DELETE {{baseUrl}}/images/{imageId}` with header `x-user-id: user-123`
 
+Presigned upload requirement:
+
+- Send `PUT` to `upload_url`.
+- Include all returned `upload_headers` exactly (especially `Content-Type`).
+- Do not alter query params in the URL; otherwise S3 can return `SignatureDoesNotMatch`.
+
 Suggested Postman environment variables:
 
 - `baseUrl` = `http://localhost:4566/v1`
@@ -158,11 +171,11 @@ Suggested parameter values during deploy:
 
 ## API Summary
 
-- `POST /images`
-- `GET /images`
-- `GET /images/{imageId}`
-- `GET /images/{imageId}/download-url`
-- `DELETE /images/{imageId}`
+- `POST /v1/images`
+- `GET /v1/images`
+- `GET /v1/images/{imageId}`
+- `GET /v1/images/{imageId}/download-url`
+- `DELETE /v1/images/{imageId}`
 
 Detailed request/response payloads are in `docs/api.md`.
 

@@ -55,4 +55,6 @@ sam deploy \
     StageName="$STAGE_NAME" \
     ImagesTableName="$IMAGES_TABLE_NAME" \
     ImagesBucketName="$IMAGES_BUCKET_NAME" \
+    AwsEndpointUrl="$AWS_ENDPOINT_URL" \
+    S3AddressingStyle=path \
     AllowInsecureTestAuth=true

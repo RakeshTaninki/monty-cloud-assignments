@@ -31,7 +31,7 @@ class FakeStorage:
         return f"images/{owner_user_id}/{image_id}.{file_extension}"
 
     def create_upload_url(self, s3_key: str, content_type: str):
-        return "https://upload.example", {"Content-Type": content_type}
+        return "https://upload.example", {"Content-Type": content_type, "key": s3_key}
 
     def create_download_url(self, s3_key: str):
         return "https://download.example"
@@ -58,6 +58,7 @@ def test_create_image_success():
     assert response.upload_url.startswith("https://upload.example")
     assert repo.created.tags == ["tagone", "tagtwo"]
     assert repo.created.owner_user_id == "user-1"
+    assert response.metadata.upload_status.value == "PENDING_UPLOAD"
 
 
 def test_non_owner_cannot_read_private():

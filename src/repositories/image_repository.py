@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.core.config import Settings, get_settings
-from src.models.image import ImageMetadata, ListImagesQuery, Visibility, utcnow_iso
+from src.models.image import ImageMetadata, ListImagesQuery, UploadStatus, Visibility, utcnow_iso
 
 
 @dataclass
@@ -60,6 +60,7 @@ class ImageRepository:
                         "s3Key": {"S": image.s3_key},
                         "contentType": {"S": image.content_type},
                         "sizeBytes": {"N": str(image.size_bytes)},
+                        "uploadStatus": {"S": image.upload_status.value},
                         "createdAt": {"S": created_at},
                         "updatedAt": {"S": now},
                         "GSI1PK": {"S": f"IMAGE#{image.image_id}"},
@@ -93,6 +94,30 @@ class ImageRepository:
             )
         self._client.transact_write_items(TransactItems=transact_items)
 
+    def mark_uploaded(self, owner_user_id: str, image_id: str, uploaded_at: str) -> None:
+        from botocore.exceptions import ClientError
+
+        image = self.get_image_by_id(image_id)
+        if not image:
+            return
+        if image.get("ownerUserId") != owner_user_id:
+            return
+        try:
+            self._table.update_item(
+                Key={"PK": image["PK"], "SK": image["SK"]},
+                UpdateExpression="SET uploadStatus = :uploaded, uploadedAt = :uploadedAt, updatedAt = :updatedAt",
+                ConditionExpression="attribute_not_exists(uploadStatus) OR uploadStatus = :pending",
+                ExpressionAttributeValues={
+                    ":uploaded": UploadStatus.UPLOADED.value,
+                    ":pending": UploadStatus.PENDING_UPLOAD.value,
+                    ":uploadedAt": uploaded_at,
+                    ":updatedAt": uploaded_at,
+                },
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                raise
+
     def get_image_by_id(self, image_id: str) -> dict[str, Any] | None:
         from boto3.dynamodb.conditions import Key
 
@@ -108,6 +133,12 @@ class ImageRepository:
         from boto3.dynamodb.conditions import Key
 
         exclusive_start_key = query.decode_next_token()
+        query_kwargs: dict[str, Any] = {
+            "ScanIndexForward": False,
+            "Limit": query.limit,
+        }
+        if exclusive_start_key is not None:
+            query_kwargs["ExclusiveStartKey"] = exclusive_start_key
 
         if query.tag:
             from_ts = (
@@ -126,9 +157,7 @@ class ImageRepository:
                     build_tag_sk(query.tag, from_ts, "00000000-0000-0000-0000-000000000000"),
                     build_tag_sk(query.tag, to_ts, "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"),
                 ),
-                ScanIndexForward=False,
-                Limit=query.limit,
-                ExclusiveStartKey=exclusive_start_key,
+                **query_kwargs,
             )
             edge_items = response.get("Items", [])
             keys = [{"PK": item["imagePK"], "SK": item["imageSK"]} for item in edge_items]
@@ -153,9 +182,7 @@ class ImageRepository:
             response = self._table.query(
                 IndexName=self.settings.gsi2_name,
                 KeyConditionExpression=Key("GSI2PK").eq(f"USERVIS#{user_id}#{query.visibility.value}"),
-                ScanIndexForward=False,
-                Limit=query.limit,
-                ExclusiveStartKey=exclusive_start_key,
+                **query_kwargs,
             )
             return ListResult(
                 items=response.get("Items", []), last_evaluated_key=response.get("LastEvaluatedKey")
@@ -164,9 +191,7 @@ class ImageRepository:
         response = self._table.query(
             KeyConditionExpression=Key("PK").eq(build_image_pk(user_id))
             & Key("SK").begins_with("IMAGE#"),
-            ScanIndexForward=False,
-            Limit=query.limit,
-            ExclusiveStartKey=exclusive_start_key,
+            **query_kwargs,
         )
         return ListResult(
             items=response.get("Items", []), last_evaluated_key=response.get("LastEvaluatedKey")
@@ -224,6 +249,12 @@ def map_item_to_metadata(item: dict[str, Any]) -> ImageMetadata:
         s3_key=item["s3Key"],
         content_type=item["contentType"],
         size_bytes=int(item["sizeBytes"]),
+        upload_status=UploadStatus(item.get("uploadStatus", UploadStatus.PENDING_UPLOAD.value)),
+        uploaded_at=(
+            datetime.fromisoformat(item["uploadedAt"].replace("Z", "+00:00"))
+            if item.get("uploadedAt")
+            else None
+        ),
         created_at=datetime.fromisoformat(item["createdAt"].replace("Z", "+00:00")),
         updated_at=datetime.fromisoformat(item["updatedAt"].replace("Z", "+00:00")),
     )

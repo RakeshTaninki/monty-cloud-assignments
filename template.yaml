@@ -15,6 +15,16 @@ Parameters:
   ImagesBucketName:
     Type: String
     Default: secure-image-service-images
+  AwsEndpointUrl:
+    Type: String
+    Default: ""
+  S3AddressingStyle:
+    Type: String
+    Default: auto
+    AllowedValues:
+      - auto
+      - path
+      - virtual
   LocalstackEdgeUrl:
     Type: String
     Default: http://localhost:4566
@@ -52,8 +62,10 @@ Globals:
     Environment:
       Variables:
         APP_ENV: prod
-        IMAGES_TABLE_NAME: !Ref ImagesTable  # Use the generated name from the resource reference
-        IMAGES_BUCKET_NAME: !Ref ImagesBucket
+        AWS_ENDPOINT_URL: !Ref AwsEndpointUrl
+        S3_ADDRESSING_STYLE: !Ref S3AddressingStyle
+        IMAGES_TABLE_NAME: !Ref ImagesTable
+        IMAGES_BUCKET_NAME: !Ref ImagesBucketName
         GSI1_NAME: GSI1ImageLookup
         GSI2_NAME: GSI2UserVisibility
         PRESIGNED_URL_EXPIRY_SECONDS: !Ref PresignedUrlExpirySeconds
@@ -105,7 +117,7 @@ Resources:
                 - s3:PutObject
                 - s3:GetObject
                 - s3:DeleteObject
-              Resource: !Sub ${ImagesBucket.Arn}/images/*
+              Resource: !Sub arn:aws:s3:::${ImagesBucketName}/images/*
       Events:
         ApiRoot:
           Type: Api
@@ -119,6 +131,32 @@ Resources:
             RestApiId: !Ref ImagesApi
             Path: /{proxy+}
             Method: ANY
+
+  UploadStatusUpdaterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AppName}-upload-status-updater
+      CodeUri: .
+      Handler: src/handlers/s3_upload_status_handler.lambda_handler
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ImagesTable.Arn
+                - !Sub ${ImagesTable.Arn}/index/*
+
+  UploadStatusUpdaterPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UploadStatusUpdaterFunction.Arn
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:s3:::${ImagesBucketName}
 
   ImagesTable:
     Type: AWS::DynamoDB::Table
@@ -165,6 +203,8 @@ Resources:
 
   ImagesBucket:
     Type: AWS::S3::Bucket
+    DependsOn:
+      - UploadStatusUpdaterPermission
     Properties:
       BucketName: !Ref ImagesBucketName
       BucketEncryption:
@@ -176,6 +216,15 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt UploadStatusUpdaterFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: images/
 
   UserPool:
     Type: AWS::Cognito::UserPool

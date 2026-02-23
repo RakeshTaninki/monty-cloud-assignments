@@ -14,7 +14,7 @@ from src.models.image import (
 )
 from src.services.image_service import ImageService
 
-router = APIRouter(prefix="/images", tags=["images"])
+router = APIRouter(prefix="/v1/images", tags=["images"])
 
 
 def get_image_service() -> ImageService:

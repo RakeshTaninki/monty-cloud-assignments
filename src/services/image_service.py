@@ -12,6 +12,7 @@ from src.models.image import (
     ImageMetadata,
     ListImagesQuery,
     ListImagesResponse,
+    UploadStatus,
     Visibility,
     utcnow_iso,
     validate_image_id,
@@ -55,6 +56,7 @@ class ImageService:
             s3_key=s3_key,
             content_type=payload.content_type,
             size_bytes=payload.size_bytes,
+            upload_status=UploadStatus.PENDING_UPLOAD,
             created_at=created_at,
             updated_at=created_at,
         )

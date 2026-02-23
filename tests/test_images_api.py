@@ -24,6 +24,8 @@ class FakeImageService:
                 "s3_key": "images/user/1.jpg",
                 "content_type": payload.content_type,
                 "size_bytes": payload.size_bytes,
+                "upload_status": "PENDING_UPLOAD",
+                "uploaded_at": None,
                 "created_at": "2026-02-22T10:10:10Z",
                 "updated_at": "2026-02-22T10:10:10Z",
             },
@@ -42,6 +44,8 @@ class FakeImageService:
             "s3_key": "images/user/1.jpg",
             "content_type": "image/jpeg",
             "size_bytes": 100,
+            "upload_status": "UPLOADED",
+            "uploaded_at": "2026-02-22T10:11:10Z",
             "created_at": "2026-02-22T10:10:10Z",
             "updated_at": "2026-02-22T10:10:10Z",
         }
@@ -80,7 +84,7 @@ def test_create_image_validation_error():
         "file_extension": "pdf",
     }
 
-    response = client.post("/images", json=payload)
+    response = client.post("/v1/images", json=payload)
     assert response.status_code == 422
 
 
@@ -95,7 +99,7 @@ def test_create_image_success():
         "file_extension": "jpg",
     }
 
-    response = client.post("/images", json=payload)
+    response = client.post("/v1/images", json=payload)
     assert response.status_code == 201
     body = response.json()
     assert body["metadata"]["owner_user_id"] == "user-123"
@@ -103,7 +107,7 @@ def test_create_image_success():
 
 def test_list_images():
     client = _create_client()
-    response = client.get("/images?limit=10")
+    response = client.get("/v1/images?limit=10")
     assert response.status_code == 200
     assert response.json()["items"] == []
 
@@ -111,6 +115,6 @@ def test_list_images():
 def test_get_download_url():
     client = _create_client()
     image_id = "22222222-2222-4222-8222-222222222222"
-    response = client.get(f"/images/{image_id}/download-url")
+    response = client.get(f"/v1/images/{image_id}/download-url")
     assert response.status_code == 200
     assert "download_url" in response.json()

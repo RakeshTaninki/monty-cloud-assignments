@@ -1,0 +1,13 @@
+services:
+  localstack:
+    container_name: localstack-main
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,apigateway,s3,dynamodb,cognito-idp,sts,iam,logs,cloudformation
+      - DEBUG=1
+      - AWS_DEFAULT_REGION=ap-south-1
+      - LS_LOG=warn
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

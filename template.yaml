@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Secure Image Service (FastAPI + API Gateway REST + Cognito + DynamoDB + S3)
+
+Parameters:
+  AppName:
+    Type: String
+    Default: secure-image-service
+  StageName:
+    Type: String
+    Default: v1
+  ImagesTableName:
+    Type: String
+    Default: Images
+  ImagesBucketName:
+    Type: String
+    Default: secure-image-service-images
+  LocalstackEdgeUrl:
+    Type: String
+    Default: http://localhost:4566
+  PresignedUrlExpirySeconds:
+    Type: Number
+    Default: 900
+    MinValue: 60
+    MaxValue: 3600
+  MaxTags:
+    Type: Number
+    Default: 10
+  MaxCaptionLength:
+    Type: Number
+    Default: 2200
+  MaxPageSize:
+    Type: Number
+    Default: 50
+  MaxImageSizeBytes:
+    Type: Number
+    Default: 10485760
+  AllowedContentTypes:
+    Type: String
+    Default: image/jpeg,image/png,image/webp
+  AllowInsecureTestAuth:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 128
+    Tracing: Active
+    Environment:
+      Variables:
+        APP_ENV: prod
+        IMAGES_TABLE_NAME: !Ref ImagesTable  # Use the generated name from the resource reference
+        IMAGES_BUCKET_NAME: !Ref ImagesBucket
+        GSI1_NAME: GSI1ImageLookup
+        GSI2_NAME: GSI2UserVisibility
+        PRESIGNED_URL_EXPIRY_SECONDS: !Ref PresignedUrlExpirySeconds
+        MAX_TAGS: !Ref MaxTags
+        MAX_CAPTION_LENGTH: !Ref MaxCaptionLength
+        MAX_PAGE_SIZE: !Ref MaxPageSize
+        MAX_IMAGE_SIZE_BYTES: !Ref MaxImageSizeBytes
+        ALLOWED_CONTENT_TYPES: !Ref AllowedContentTypes
+        ALLOW_INSECURE_TEST_AUTH: !Ref AllowInsecureTestAuth
+
+Resources:
+  ImagesApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${AppName}-http-api
+      StageName: !Ref StageName
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Authorization,Content-Type,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'GET,POST,DELETE,OPTIONS'"
+      # Auth:
+      #   DefaultAuthorizer: CognitoAuthorizer
+      #   Authorizers:
+      #     CognitoAuthorizer:
+      #       UserPoolArn: !GetAtt UserPool.Arn
+
+  ImageServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AppName}-function
+      CodeUri: .
+      Handler: src/handler.lambda_handler
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:DeleteItem
+                - dynamodb:BatchGetItem
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !GetAtt ImagesTable.Arn
+                - !Sub ${ImagesTable.Arn}/index/*
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource: !Sub ${ImagesBucket.Arn}/images/*
+      Events:
+        ApiRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ImagesApi
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ImagesApi
+            Path: /{proxy+}
+            Method: ANY
+
+  ImagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref ImagesTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+        - AttributeName: GSI2PK
+          AttributeType: S
+        - AttributeName: GSI2SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1ImageLookup
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI2UserVisibility
+          KeySchema:
+            - AttributeName: GSI2PK
+              KeyType: HASH
+            - AttributeName: GSI2SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ImagesBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${AppName}-user-pool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${AppName}-client
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+
+Outputs:
+  ApiBaseUrl:
+    Description: AWS API Gateway REST endpoint
+    Value: !Sub https://${ImagesApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+  UserPoolId:
+    Description: AWS Cognito User Pool ID (LocalStack may show unknown)
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: AWS Cognito App Client ID (LocalStack may show unknown)
+    Value: !Ref UserPoolClient
+  CognitoUserPoolName:
+    Description: Deterministic Cognito User Pool Name
+    Value: !Sub ${AppName}-user-pool
+  ImagesTable:
+    Description: DynamoDB table name
+    Value: !Ref ImagesTable
+  ImagesBucket:
+    Description: S3 bucket name
+    Value: !Ref ImagesBucket

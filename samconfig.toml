@@ -1,0 +1,16 @@
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "secure-image-service-local"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+resolve_s3 = false
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+parameter_overrides = [
+]

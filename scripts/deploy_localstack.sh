@@ -11,6 +11,7 @@ APP_NAME="${APP_NAME:-secure-image-service}"
 STAGE_NAME="${STAGE_NAME:-v1}"
 IMAGES_TABLE_NAME="${IMAGES_TABLE_NAME:-Images}"
 IMAGES_BUCKET_NAME="${IMAGES_BUCKET_NAME:-secure-image-service-images-local}"
+PENDING_UPLOAD_TTL_EXTRA_SECONDS="${PENDING_UPLOAD_TTL_EXTRA_SECONDS:-300}"
 
 # Optional cleanup for repeatable LocalStack redeploys.
 # Use CLEAN_LOCALSTACK=true to remove failed stack and conflicting table.
@@ -55,6 +56,7 @@ sam deploy \
     StageName="$STAGE_NAME" \
     ImagesTableName="$IMAGES_TABLE_NAME" \
     ImagesBucketName="$IMAGES_BUCKET_NAME" \
+    PendingUploadTtlExtraSeconds="$PENDING_UPLOAD_TTL_EXTRA_SECONDS" \
     AwsEndpointUrl="$AWS_ENDPOINT_URL" \
     S3AddressingStyle=path \
     AllowInsecureTestAuth=true

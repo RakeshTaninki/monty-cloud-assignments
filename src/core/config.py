@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     gsi1_name: str = "GSI1ImageLookup"
     gsi2_name: str = "GSI2UserVisibility"
     presigned_url_expiry_seconds: int = Field(default=900, ge=60, le=3600)
+    pending_upload_ttl_extra_seconds: int = Field(default=900, ge=0, le=86_400)
     max_tags: int = Field(default=10, ge=1, le=20)
     max_caption_length: int = Field(default=2200, ge=1, le=5000)
     max_page_size: int = Field(default=50, ge=1, le=100)

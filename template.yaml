@@ -8,7 +8,7 @@ Parameters:
     Default: secure-image-service
   StageName:
     Type: String
-    Default: v1
+    Default: api
   ImagesTableName:
     Type: String
     Default: Images
@@ -33,6 +33,11 @@ Parameters:
     Default: 900
     MinValue: 60
     MaxValue: 3600
+  PendingUploadTtlExtraSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 0
+    MaxValue: 86400
   MaxTags:
     Type: Number
     Default: 10
@@ -69,6 +74,7 @@ Globals:
         GSI1_NAME: GSI1ImageLookup
         GSI2_NAME: GSI2UserVisibility
         PRESIGNED_URL_EXPIRY_SECONDS: !Ref PresignedUrlExpirySeconds
+        PENDING_UPLOAD_TTL_EXTRA_SECONDS: !Ref PendingUploadTtlExtraSeconds
         MAX_TAGS: !Ref MaxTags
         MAX_CAPTION_LENGTH: !Ref MaxCaptionLength
         MAX_PAGE_SIZE: !Ref MaxPageSize
@@ -200,6 +206,9 @@ Resources:
             ProjectionType: ALL
       SSESpecification:
         SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
 
   ImagesBucket:
     Type: AWS::S3::Bucket

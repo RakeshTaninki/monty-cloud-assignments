@@ -43,6 +43,7 @@ class ImageRepository:
         gsi2_pk = f"USERVIS#{image.owner_user_id}#{image.visibility.value}"
         gsi2_sk = f"TS#{created_at}#IMG#{image.image_id}"
         now = utcnow_iso()
+        expires_at = self._pending_upload_expiry_epoch()
 
         transact_items: list[dict[str, Any]] = [
             {
@@ -67,6 +68,7 @@ class ImageRepository:
                         "GSI1SK": {"S": f"USER#{image.owner_user_id}"},
                         "GSI2PK": {"S": gsi2_pk},
                         "GSI2SK": {"S": gsi2_sk},
+                        "expiresAt": {"N": str(expires_at)},
                     },
                     "ConditionExpression": "attribute_not_exists(PK) AND attribute_not_exists(SK)",
                 }
@@ -87,6 +89,7 @@ class ImageRepository:
                             "createdAt": {"S": created_at},
                             "imagePK": {"S": pk},
                             "imageSK": {"S": sk},
+                            "expiresAt": {"N": str(expires_at)},
                         },
                         "ConditionExpression": "attribute_not_exists(PK) AND attribute_not_exists(SK)",
                     }
@@ -105,7 +108,7 @@ class ImageRepository:
         try:
             self._table.update_item(
                 Key={"PK": image["PK"], "SK": image["SK"]},
-                UpdateExpression="SET uploadStatus = :uploaded, uploadedAt = :uploadedAt, updatedAt = :updatedAt",
+                UpdateExpression="SET uploadStatus = :uploaded, uploadedAt = :uploadedAt, updatedAt = :updatedAt REMOVE expiresAt",
                 ConditionExpression="attribute_not_exists(uploadStatus) OR uploadStatus = :pending",
                 ExpressionAttributeValues={
                     ":uploaded": UploadStatus.UPLOADED.value,
@@ -114,9 +117,34 @@ class ImageRepository:
                     ":updatedAt": uploaded_at,
                 },
             )
+            tags: list[str] = list(image.get("tags", []))
+            if tags == ["_none"]:
+                tags = []
+            for tag in tags:
+                try:
+                    self._table.update_item(
+                        Key={
+                            "PK": image["PK"],
+                            "SK": build_tag_sk(tag, image["createdAt"], image["imageId"]),
+                        },
+                        UpdateExpression="REMOVE expiresAt",
+                        ConditionExpression="attribute_exists(PK) AND attribute_exists(SK)",
+                    )
+                except ClientError as tag_exc:
+                    if (
+                        tag_exc.response.get("Error", {}).get("Code")
+                        != "ConditionalCheckFailedException"
+                    ):
+                        raise
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
                 raise
+
+    def _pending_upload_expiry_epoch(self) -> int:
+        ttl_seconds = (
+            self.settings.presigned_url_expiry_seconds + self.settings.pending_upload_ttl_extra_seconds
+        )
+        return int(datetime.now(UTC).timestamp()) + ttl_seconds
 
     def get_image_by_id(self, image_id: str) -> dict[str, Any] | None:
         from boto3.dynamodb.conditions import Key
@@ -163,10 +191,11 @@ class ImageRepository:
             keys = [{"PK": item["imagePK"], "SK": item["imageSK"]} for item in edge_items]
             images: list[dict[str, Any]] = []
             if keys:
-                batch = self._client.batch_get_item(
-                    RequestItems={self.settings.images_table_name: {"Keys": keys}}
-                )
-                images = batch.get("Responses", {}).get(self.settings.images_table_name, [])
+                for key in keys:
+                    result = self._table.get_item(Key=key)
+                    item = result.get("Item")
+                    if item:
+                        images.append(item)
             image_map = {(item["PK"], item["SK"]): item for item in images}
             ordered = []
             for edge in edge_items:

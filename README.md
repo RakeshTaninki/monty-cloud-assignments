@@ -28,6 +28,7 @@ Production-grade image metadata service with strict ownership controls, Cognito 
 - `POST /v1/images` creates metadata with `upload_status=PENDING_UPLOAD` and returns a presigned `upload_url`.
 - Client uploads bytes to S3 using a single presigned `upload_url` and exact `upload_headers`.
 - S3 `ObjectCreated` event triggers a Lambda that updates DynamoDB status to `UPLOADED`.
+- Pending records auto-expire via DynamoDB TTL (`expiresAt`). On successful upload, TTL is removed.
 - Check status via `GET /v1/images/{imageId}`.
 
 ## Prerequisites
